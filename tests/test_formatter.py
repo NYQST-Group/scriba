@@ -1,5 +1,4 @@
 import json
-import pytest
 from scriba.contracts import Segment, TranscriptionResult
 from scriba.output.formatter import format_result
 

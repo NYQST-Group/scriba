@@ -7,12 +7,10 @@ import os
 import tempfile
 import time as _time
 from pathlib import Path
-from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from scriba.backends import backend_to_info, discover_backends
-from scriba.config import load_config
 from scriba.contracts import TranscriptionConfig
 from scriba.errors import ScribaError
 from scriba.media.ingest import extract_audio, probe_media

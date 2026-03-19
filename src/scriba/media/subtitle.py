@@ -2,9 +2,7 @@
 from __future__ import annotations
 import subprocess
 from pathlib import Path
-from scriba.contracts import Segment
 from scriba.errors import AudioError, DependencyMissing
-from scriba.formatting import generate_srt, generate_vtt
 
 
 def burn_subtitles(

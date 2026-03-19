@@ -7,3 +7,12 @@ build/
 .pytest_cache/
 .ruff_cache/
 .env
+.DS_Store
+Archive/
+Archive.zip
+*.wav
+*.mp4
+!tests/fixtures/*.wav
+!tests/fixtures/*.mp4
+firebase-debug.log
+screen-recording-*

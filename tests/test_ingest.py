@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from scriba.media.ingest import probe_media, extract_audio, compress_for_upload, MediaInfo
+from scriba.media.ingest import probe_media, extract_audio, compress_for_upload
 from scriba.errors import AudioError
 
 FIXTURES = Path(__file__).parent / "fixtures"

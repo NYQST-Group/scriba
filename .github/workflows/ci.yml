@@ -11,13 +11,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: astral-sh/setup-uv@v4
       - name: Install dependencies
         run: uv pip install -e ".[dev]" --system
       - name: Lint
         run: ruff check src/ tests/
       - name: Type check
-        run: pyright src/
+        run: pyright src/scriba/
       - name: Unit tests
         run: pytest tests/ -v --ignore=tests/fixtures -k "not integration"
 
@@ -26,6 +29,9 @@ jobs:
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - uses: astral-sh/setup-uv@v4
       - name: Install with MLX
         run: uv pip install -e ".[mlx,dev]" --system

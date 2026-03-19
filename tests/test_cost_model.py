@@ -4,7 +4,7 @@ import pytest
 
 from scriba.router.cost_model import (
     estimate_cost_cents, estimate_time_seconds,
-    PRICING, TIME_MULTIPLIERS, load_calibration, save_calibration_entry,
+    PRICING, load_calibration, save_calibration_entry,
 )
 
 

@@ -33,6 +33,12 @@ where = ["src"]
 target-version = "py311"
 line-length = 120
 
+[tool.pyright]
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
+reportMissingImports = "warning"
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
