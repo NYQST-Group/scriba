@@ -438,18 +438,18 @@ def test_configure_stores_openai_key():
     mock_b.name = "mlx_whisper"
     mock_b.is_available = MagicMock(return_value=True)
 
+    mock_keyring = MagicMock()
+    mock_openai_mod = MagicMock()
+    mock_openai_mod.OpenAI.return_value.models.list.side_effect = Exception("no network")
+
     runner = CliRunner()
     with patch("scriba.cli.discover_backends", return_value=[mock_b]), \
-         patch("keyring.set_password") as mock_set_pw, \
-         patch("openai.OpenAI") as mock_openai:
-
-        # Simulate validation failure so we don't need a real key
-        mock_openai.return_value.models.list.side_effect = Exception("no network")
+         patch.dict("sys.modules", {"keyring": mock_keyring, "openai": mock_openai_mod}):
 
         result = runner.invoke(main, ["configure"], input="sk-test-key\n\n")
 
     assert result.exit_code == 0
-    mock_set_pw.assert_any_call("scriba", "openai-api-key", "sk-test-key")
+    mock_keyring.set_password.assert_any_call("scriba", "openai-api-key", "sk-test-key")
     assert "Stored in keychain." in result.output
 
 
@@ -459,15 +459,17 @@ def test_configure_stores_hf_token():
     mock_b.name = "mlx_whisper"
     mock_b.is_available = MagicMock(return_value=True)
 
+    mock_keyring = MagicMock()
+
     runner = CliRunner()
     with patch("scriba.cli.discover_backends", return_value=[mock_b]), \
-         patch("keyring.set_password") as mock_set_pw:
+         patch.dict("sys.modules", {"keyring": mock_keyring}):
 
         # Empty OpenAI key, then provide HF token
         result = runner.invoke(main, ["configure"], input="\nhf-my-token\n")
 
     assert result.exit_code == 0
-    mock_set_pw.assert_any_call("scriba", "hf-token", "hf-my-token")
+    mock_keyring.set_password.assert_any_call("scriba", "hf-token", "hf-my-token")
 
 
 def test_configure_openai_validation_success():
@@ -476,12 +478,13 @@ def test_configure_openai_validation_success():
     mock_b.name = "mlx_whisper"
     mock_b.is_available = MagicMock(return_value=True)
 
+    mock_keyring = MagicMock()
+    mock_openai_mod = MagicMock()
+    mock_openai_mod.OpenAI.return_value.models.list.return_value = []
+
     runner = CliRunner()
     with patch("scriba.cli.discover_backends", return_value=[mock_b]), \
-         patch("keyring.set_password"), \
-         patch("openai.OpenAI") as mock_openai:
-
-        mock_openai.return_value.models.list.return_value = []
+         patch.dict("sys.modules", {"keyring": mock_keyring, "openai": mock_openai_mod}):
 
         result = runner.invoke(main, ["configure"], input="sk-valid-key\n\n")
 
@@ -495,17 +498,18 @@ def test_configure_openai_validation_failure_warns():
     mock_b.name = "mlx_whisper"
     mock_b.is_available = MagicMock(return_value=True)
 
+    mock_keyring = MagicMock()
+    mock_openai_mod = MagicMock()
+    mock_openai_mod.OpenAI.return_value.models.list.side_effect = Exception("auth error")
+
     runner = CliRunner()
     with patch("scriba.cli.discover_backends", return_value=[mock_b]), \
-         patch("keyring.set_password") as mock_set_pw, \
-         patch("openai.OpenAI") as mock_openai:
-
-        mock_openai.return_value.models.list.side_effect = Exception("auth error")
+         patch.dict("sys.modules", {"keyring": mock_keyring, "openai": mock_openai_mod}):
 
         result = runner.invoke(main, ["configure"], input="sk-bad-key\n\n")
 
     assert result.exit_code == 0
-    mock_set_pw.assert_any_call("scriba", "openai-api-key", "sk-bad-key")
+    mock_keyring.set_password.assert_any_call("scriba", "openai-api-key", "sk-bad-key")
     assert "Warning: validation failed" in result.output
 
 
