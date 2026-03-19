@@ -1,0 +1,6 @@
+{
+  "name": "scriba",
+  "version": "0.1.0",
+  "description": "Intent-aware transcription tool with local and cloud backends",
+  "author": "NYQST Group"
+}

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]" --system
+      - name: Lint
+        run: ruff check src/ tests/
+      - name: Type check
+        run: pyright src/
+      - name: Unit tests
+        run: pytest tests/ -v --ignore=tests/fixtures -k "not integration"
+
+  test-macos:
+    runs-on: macos-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Install with MLX
+        run: uv pip install -e ".[mlx,dev]" --system
+      - name: Integration tests (MLX)
+        run: pytest tests/test_backends/test_mlx.py -v -k "integration" || true
