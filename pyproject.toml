@@ -39,6 +39,7 @@ reportMissingImports = "warning"
 reportOptionalMemberAccess = "warning"
 reportAttributeAccessIssue = "warning"
 reportFunctionMemberAccess = "warning"
+reportCallIssue = "warning"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
