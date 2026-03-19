@@ -77,7 +77,7 @@ async def transcribe(
             if output_tier == "enriched":
                 result.enrichment_available = True
 
-            if subtitle_video and info.has_video:
+            if subtitle_video and info.has_video and result.segments:
                 from scriba.formatting import generate_srt
                 from scriba.media.subtitle import burn_subtitles
                 srt_content = generate_srt(result.segments)

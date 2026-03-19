@@ -105,7 +105,7 @@ async def _transcribe(
         result = await adapter.transcribe(audio_path, tc)
         result.routing = decision
 
-        if subtitle and info.has_video:
+        if subtitle and info.has_video and result.segments:
             from scriba.formatting import generate_srt
             from scriba.media.subtitle import burn_subtitles
             srt_content = generate_srt(result.segments)
