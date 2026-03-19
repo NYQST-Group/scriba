@@ -39,13 +39,14 @@ def main():
 @click.option("-o", "--output", type=click.Path(), default=None)
 @click.option("--dry-run", is_flag=True, default=False)
 @click.option("--intent", type=str, default=None)
+@click.option("--enrich", is_flag=True, default=False, help="Summarize via OpenAI (enriched tier)")
 def transcribe(file, quality, tier, fmt, diarize, speakers, language, budget, timeout,
-               subtitle, subtitle_mode, output, dry_run, intent):
+               subtitle, subtitle_mode, output, dry_run, intent, enrich):
     """Transcribe an audio or video file."""
     try:
         text = asyncio.run(_transcribe(
             Path(file), quality, tier, fmt, diarize, speakers, language,
-            budget, timeout, subtitle, subtitle_mode, output, dry_run,
+            budget, timeout, subtitle, subtitle_mode, output, dry_run, enrich,
         ))
         if output:
             Path(output).write_text(text)
@@ -61,7 +62,7 @@ async def _transcribe(
     path: Path, quality: str, tier: str, fmt: str, diarize: bool,
     speakers: int | None, language: str | None, budget: int | None,
     timeout: int | None, subtitle: bool, subtitle_mode: str,
-    output: str | None, dry_run: bool,
+    output: str | None, dry_run: bool, enrich: bool = False,
 ) -> str:
     import tempfile
 
@@ -100,10 +101,18 @@ async def _transcribe(
         diarize=diarize, speakers=speakers, output_tier=tier,
     )
 
+    import time as _time
+
     with tempfile.TemporaryDirectory(prefix="scriba-") as tmpdir:
         audio_path = extract_audio(path, Path(tmpdir) / "audio.wav")
+        _start = _time.monotonic()
         result = await adapter.transcribe(audio_path, tc)
+        _elapsed = _time.monotonic() - _start
         result.routing = decision
+
+        from scriba.router.cost_model import save_calibration_entry
+        cal_path = Path(load_config().calibration_path).expanduser()
+        save_calibration_entry(cal_path, adapter.name, tc.model, audio_duration=info.duration_seconds, wall_clock=_elapsed)
 
         if subtitle and info.has_video and result.segments:
             from scriba.formatting import generate_srt
@@ -114,6 +123,33 @@ async def _transcribe(
             out_video = path.parent / f"{path.stem}.subtitled{path.suffix}"
             burn_subtitles(path, srt_path, out_video, mode=subtitle_mode)
             click.echo(f"Subtitled video: {out_video}", err=True)
+
+    if enrich:
+        secrets = SecretsChain([KeychainProvider(), EnvProvider()])
+        openai_key = await secrets.get("openai-api-key")
+        if openai_key:
+            try:
+                from openai import AsyncOpenAI
+                client = AsyncOpenAI(api_key=openai_key)
+                utterances_text = "\n".join(
+                    f"[{s.start:.1f}-{s.end:.1f}] {s.speaker or 'SPEAKER'}: {s.text}"
+                    for s in result.segments
+                )
+                resp = await client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{
+                        "role": "user",
+                        "content": f"Summarize this transcript. Provide: title, summary, key decisions, action items, and notable quotes.\n\n{utterances_text}"
+                    }],
+                    timeout=60,
+                )
+                enrichment = resp.choices[0].message.content
+                click.echo("\n--- Enrichment ---\n", err=True)
+                click.echo(enrichment, err=True)
+            except Exception as e:
+                click.echo(f"Enrichment failed: {e}", err=True)
+        else:
+            click.echo("Warning: --enrich requires OpenAI API key. Skipping enrichment.", err=True)
 
     return format_result(result, output_format=fmt, output_tier=tier)
 
@@ -176,6 +212,14 @@ def configure():
         import keyring
         keyring.set_password("scriba", "openai-api-key", key)
         click.echo("  Stored in keychain.")
+        # Validate
+        try:
+            import openai
+            client = openai.OpenAI(api_key=key, timeout=10)
+            client.models.list()
+            click.echo("  Validated successfully.")
+        except Exception as e:
+            click.echo(f"  Warning: validation failed ({e}). Key stored anyway.", err=True)
     hf = click.prompt("HuggingFace token (enter to skip)", default="", show_default=False)
     if hf:
         import keyring

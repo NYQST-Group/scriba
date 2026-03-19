@@ -1,9 +1,11 @@
 """FastMCP server exposing transcription tools."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
+import time as _time
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,9 @@ from scriba.router.engine import route
 from scriba.secrets import EnvProvider, KeychainProvider, SecretsChain
 
 mcp = FastMCP("scriba")
+
+_local_sem = asyncio.Semaphore(1)
+_cloud_sem = asyncio.Semaphore(3)
 
 
 def create_server() -> FastMCP:
@@ -72,7 +77,16 @@ async def transcribe(
                 model=decision.selected.model, language=language,
                 diarize=diarize, speakers=speakers, output_tier=output_tier,
             )
-            result = await adapter.transcribe(audio_path, tc)
+            sem = _cloud_sem if adapter.name == "openai_stt" else _local_sem
+            _start = _time.monotonic()
+            async with sem:
+                result = await adapter.transcribe(audio_path, tc)
+            _elapsed = _time.monotonic() - _start
+            from scriba.router.cost_model import save_calibration_entry
+            from scriba.config import load_config as _load_config
+            _cfg = _load_config()
+            cal_path = Path(_cfg.calibration_path).expanduser()
+            save_calibration_entry(cal_path, adapter.name, tc.model, audio_duration=info.duration_seconds, wall_clock=_elapsed)
             result.routing = decision
             if output_tier == "enriched":
                 result.enrichment_available = True
@@ -128,6 +142,7 @@ async def estimate(
                 for a in decision.alternatives
             ],
             "trade_offs": decision.trade_offs,
+            "routing_notes": decision.trade_offs if decision.trade_offs else None,
         }, indent=2)
     except ScribaError as e:
         return json.dumps({"error": str(e), "type": type(e).__name__})
@@ -135,7 +150,16 @@ async def estimate(
 
 async def handle_backends() -> list[dict]:
     """List available backends."""
-    return [{"name": b.name, "available": b.is_available()} for b in discover_backends()]
+    return [
+        {
+            "name": b.name,
+            "available": b.is_available(),
+            "models": b.models,
+            "supports_diarize": b.supports_diarize,
+            "reason_unavailable": None if b.is_available() else f"{b.name} package not installed",
+        }
+        for b in discover_backends()
+    ]
 
 
 @mcp.tool()
