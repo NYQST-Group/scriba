@@ -106,6 +106,12 @@ For CLI use, a simple keyword parser maps common phrases to params:
 
 5. **Select or explain** — if a candidate satisfies all constraints, select it. If constraints conflict, return a `RoutingDecision` containing the best feasible option, what was traded off, and alternative options for Claude to present.
 
+**RoutingDecision consumption:**
+
+- **MCP server:** the `RoutingDecision` is included in the response metadata. When `trade_offs` is non-empty, the response includes a `routing_notes` field with human-readable explanations. The server always proceeds with the best feasible option — it does not block for confirmation. Claude can inspect the trade-offs and present them to the user.
+- **CLI:** when `trade_offs` is non-empty, the trade-off explanations are printed to stderr before transcription proceeds. The `--dry-run` flag (alias for the `estimate` command) shows the full routing decision without transcribing.
+- **Both:** the `RoutingDecision` is attached to `TranscriptionResult.routing` so downstream consumers always know what was selected and why.
+
 ### Cost Model
 
 | Backend / Model | Cost per Minute | Time Multiplier (approx) |
@@ -174,6 +180,8 @@ class TranscriptionResult:
     backend: str          # "mlx_whisper" | "whisperx" | "openai_stt"
     cost_cents: float     # 0.0 for local
     diarized: bool
+    enrichment_available: bool = False  # True when tier=enriched but enrichment deferred to caller
+    routing: RoutingDecision | None = None  # included when trade-offs were made
 
 @dataclass
 class Estimate:
@@ -282,7 +290,7 @@ The MCP server maps these to structured error responses. The CLI prints human-re
 - **Cloud backend (OpenAI):** concurrent requests allowed (up to 3 parallel, configurable). OpenAI handles server-side concurrency.
 - **Mixed:** a cloud request can run concurrently with a queued local request.
 
-This is enforced via an `asyncio.Semaphore` per backend category (local=1, cloud=3).
+This is enforced via an `asyncio.Semaphore` per backend category. Defaults are hardcoded (`local=1`, `cloud=3`) but overridable in config (see Configuration section).
 
 ## Long Audio Handling
 
@@ -346,15 +354,19 @@ Built with FastMCP.
 
 Returns: transcript in requested format + metadata (backend used, cost, duration, file paths).
 
-**`estimate`** — preview cost/time without transcribing
+**`estimate`** — preview cost/time without transcribing. Accepts the same constraint params as `transcribe` so the router can produce accurate recommendations.
 
-| Parameter | Type | Required |
-|-----------|------|----------|
-| `file_path` | `str` | yes |
-| `quality` | `str` | no |
-| `diarize` | `bool` | no |
+| Parameter | Type | Required | Default |
+|-----------|------|----------|---------|
+| `file_path` | `str` | yes | — |
+| `quality` | `str` | no | `balanced` |
+| `budget_cents` | `int` | no | `null` |
+| `timeout_seconds` | `int` | no | `null` |
+| `diarize` | `bool` | no | `false` |
+| `speakers` | `int` | no | `null` |
+| `output_tier` | `str` | no | `timestamped` |
 
-Returns: per-backend estimates `[{backend, model, time_seconds, cost_cents, available, recommended}]`.
+Returns: `RoutingDecision` with `selected` (recommended), `alternatives`, and `trade_offs` if constraints conflict.
 
 **`backends`** — list available backends and status
 
@@ -381,6 +393,79 @@ scriba-mcp    ──┘
 - **Claude Code plugin:** starts `scriba-mcp` as a subprocess via stdio transport. The plugin's `.mcp.json` specifies `uv run scriba-mcp` as the command.
 
 Both entry points can coexist — the CLI is for direct use, the MCP server is for Claude integration. They share config, secrets, and calibration data.
+
+## CLI Interface
+
+### Subcommands
+
+```
+scriba transcribe <file>   Transcribe audio/video file
+scriba estimate <file>     Preview cost/time per backend
+scriba backends            List available backends and status
+scriba configure           Interactive setup (secrets, validation)
+```
+
+### `scriba transcribe`
+
+```
+Usage: scriba transcribe [OPTIONS] FILE
+
+Options:
+  -q, --quality [fast|balanced|high]   Quality tier (default: balanced)
+  -t, --tier [raw|timestamped|diarized|enriched]  Output tier (default: timestamped)
+  -f, --format [json|text|srt|vtt|md]  Output format (default: json)
+  -d, --diarize                        Enable speaker diarization
+  -s, --speakers INT                   Expected speaker count hint
+  -l, --language TEXT                   ISO 639-1 language code
+  --budget INT                         Max spend in cents
+  --timeout INT                        Max wall-clock seconds
+  --subtitle                           Burn subtitles onto video (video input only)
+  --subtitle-mode [soft|hard]          Subtitle embedding mode (default: soft)
+  --enrich                             Summarize via OpenAI (enriched tier)
+  -o, --output PATH                    Output file path (default: stdout for text/json/md,
+                                       <stem>.srt/.vtt for subtitle formats)
+  --dry-run                            Show routing decision without transcribing
+  --intent TEXT                         Natural language intent (alternative to flags)
+```
+
+**Output behavior:**
+- By default, writes to stdout (json, text, md formats) or to `<stem>.<ext>` (srt, vtt).
+- `--output` overrides the destination.
+- Trade-off explanations from the router print to stderr, never polluting stdout.
+- Subtitled video always writes to `<stem>.subtitled.<ext>`.
+
+**Examples:**
+```bash
+# Quick voice note transcript
+scriba transcribe recording.m4a -q fast -t raw -f text
+
+# Diarized meeting, markdown output
+scriba transcribe meeting.mp4 -d -s 4 -q high -t diarized -f md -o meeting.md
+
+# Subtitled video
+scriba transcribe talk.mov -d --subtitle -t diarized
+
+# Check what it would cost
+scriba estimate long-interview.wav -d -q high
+
+# Natural language intent
+scriba transcribe memo.m4a --intent "quick transcript, I just need the text"
+```
+
+### `scriba estimate`
+
+Prints a table of backend options with estimated time, cost, and recommendation marker. Accepts the same constraint flags as `transcribe`.
+
+### `scriba configure`
+
+Interactive walkthrough:
+1. Detect platform (macOS → keychain, Linux → SecretService, other → env fallback)
+2. Prompt for OpenAI API key → validate with a test API call → store in keychain
+3. Prompt for HuggingFace token → validate pyannote model access → store in keychain
+4. Probe installed backends → report what's available
+5. Idempotent — safe to re-run to update keys or check status
+
+Exit codes: 0 = success, 1 = error, 2 = partial setup (some backends unavailable).
 
 ## Claude Code Plugin
 
@@ -504,6 +589,15 @@ diarize = false
 
 [backends]
 prefer_local = true
+
+[concurrency]
+max_local = 1       # semaphore for local backends (MLX, WhisperX)
+max_cloud = 3       # semaphore for cloud backends (OpenAI)
+
+[calibration]
+path = "~/.config/scriba/calibration.json"  # timing data for self-calibration
+max_samples = 10    # rolling average window per (backend, model) pair
+stale_days = 30     # discard entries older than this
 
 [openai]
 model = "gpt-4o-mini-transcribe"
