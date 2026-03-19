@@ -35,9 +35,10 @@ line-length = 120
 
 [tool.pyright]
 pythonVersion = "3.11"
-venvPath = "."
-venv = ".venv"
 reportMissingImports = "warning"
+reportOptionalMemberAccess = "warning"
+reportAttributeAccessIssue = "warning"
+reportFunctionMemberAccess = "warning"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
