@@ -1,0 +1,38 @@
+[project]
+name = "nyqst-scriba"
+version = "0.1.0"
+description = "Intent-aware transcription tool with local and cloud backends"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = [
+    "anyio>=4.0",
+    "click>=8.0",
+    "keyring>=25.0",
+    "mcp>=1.15",
+]
+
+[project.optional-dependencies]
+mlx = ["mlx-whisper>=0.4"]
+whisperx = ["whisperx>=3.7", "pyannote.audio>=3.4"]
+openai = ["openai>=1.50", "tenacity>=8.2"]
+all = ["nyqst-scriba[mlx,whisperx,openai]"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "pytest-mock>=3", "ruff>=0.4", "pyright>=1.1"]
+
+[project.scripts]
+scriba = "scriba.cli:main"
+scriba-mcp = "scriba.mcp.server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
