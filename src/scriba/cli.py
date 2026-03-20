@@ -78,7 +78,7 @@ async def _transcribe(
         if b.name == "openai_stt":
             key = await secrets.get("openai-api-key")
             if key:
-                b._api_key = key
+                b.set_api_key(key)
 
     backend_infos = [backend_to_info(b) for b in all_backends]
     decision = route(constraints, duration_seconds=info.duration_seconds, backends=backend_infos)
@@ -179,7 +179,7 @@ async def _estimate(path: Path, quality: str, diarize: bool, budget: int | None,
         if b.name == "openai_stt":
             key = await secrets.get("openai-api-key")
             if key:
-                b._api_key = key
+                b.set_api_key(key)
 
     backend_infos = [backend_to_info(b) for b in all_backends]
     decision = route(constraints, duration_seconds=info.duration_seconds, backends=backend_infos)

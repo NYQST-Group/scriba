@@ -28,6 +28,10 @@ class OpenAISTTBackend:
     def __init__(self, api_key: str | None = None):
         self._api_key = api_key
 
+    def set_api_key(self, key: str) -> None:
+        """Set the API key for this backend."""
+        self._api_key = key
+
     def is_available(self) -> bool:
         return _import_openai() is not None and self._api_key is not None
 
@@ -45,10 +49,13 @@ class OpenAISTTBackend:
 
     async def _call_api(self, client: Any, **kwargs: Any) -> Any:
         """Call OpenAI API with retry logic."""
+        file_handle = kwargs.get("file")
         try:
             from tenacity import retry, stop_after_attempt, wait_exponential_jitter
             @retry(wait=wait_exponential_jitter(initial=1, max=20), stop=stop_after_attempt(3))
             async def _inner():
+                if file_handle and hasattr(file_handle, "seek"):
+                    file_handle.seek(0)
                 return await client.audio.transcriptions.create(**kwargs)
             return await _inner()
         except ImportError:

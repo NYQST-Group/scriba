@@ -525,7 +525,7 @@ async def test_transcribe_wires_openai_api_key_to_backend():
         await transcribe(file_path="/fake/audio.wav")
 
     fake_secrets.get.assert_called_with("openai-api-key")
-    assert openai_backend._api_key == "sk-test-1234"
+    openai_backend.set_api_key.assert_called_with("sk-test-1234")
 
 
 @pytest.mark.asyncio
@@ -534,9 +534,6 @@ async def test_transcribe_does_not_set_api_key_when_secret_missing():
     from scriba.mcp.server import transcribe
 
     openai_backend = _make_fake_backend("openai_stt")
-    # Remove _api_key attribute so we can detect it wasn't set
-    if hasattr(openai_backend, "_api_key"):
-        del openai_backend._api_key
     decision = _make_routing_decision("openai_stt", "gpt-4o-mini-transcribe")
     tr = _make_transcription_result("openai_stt", "gpt-4o-mini-transcribe", decision=decision)
     openai_backend.transcribe = AsyncMock(return_value=tr)
@@ -555,8 +552,8 @@ async def test_transcribe_does_not_set_api_key_when_secret_missing():
     ):
         await transcribe(file_path="/fake/audio.wav")
 
-    # _api_key should NOT have been set on the mock object (key not present before call)
-    assert not hasattr(openai_backend, "_api_key")
+    # set_api_key should NOT have been called when no key was available
+    openai_backend.set_api_key.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -580,7 +577,7 @@ async def test_estimate_wires_openai_api_key_to_backend():
         await estimate(file_path="/fake/audio.wav")
 
     fake_secrets.get.assert_called_with("openai-api-key")
-    assert openai_backend._api_key == "sk-estimate-key"
+    openai_backend.set_api_key.assert_called_with("sk-estimate-key")
 
 
 @pytest.mark.asyncio

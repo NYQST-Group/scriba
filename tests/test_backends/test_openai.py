@@ -55,3 +55,26 @@ def test_estimate_cost():
         est = OpenAISTTBackend(api_key="sk-test").estimate(600.0, TranscriptionConfig(model="whisper-1"))
     assert est.cost_cents == pytest.approx(6.0)
     assert est.backend == "openai_stt"
+
+
+def test_set_api_key():
+    with patch("scriba.backends.openai_stt._import_openai", return_value=MagicMock()):
+        backend = OpenAISTTBackend(api_key=None)
+        assert backend.is_available() is False
+        backend.set_api_key("sk-new-key")
+        assert backend.is_available() is True
+        assert backend._api_key == "sk-new-key"
+
+
+@pytest.mark.asyncio
+async def test_call_api_seeks_file():
+    mock_file = MagicMock()
+    mock_client = AsyncMock()
+    mock_resp = MagicMock()
+    mock_client.audio.transcriptions.create = AsyncMock(return_value=mock_resp)
+
+    backend = OpenAISTTBackend(api_key="sk-test")
+    result = await backend._call_api(mock_client, file=mock_file, model="whisper-1")
+
+    mock_file.seek.assert_called_with(0)
+    assert result is mock_resp

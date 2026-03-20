@@ -20,8 +20,11 @@ def discover_backends() -> list[BackendAdapter]:
     """Return all backend adapters, regardless of availability."""
     backends: list[BackendAdapter] = []
 
-    from scriba.backends.mlx_whisper import MlxWhisperBackend
-    backends.append(MlxWhisperBackend())
+    try:
+        from scriba.backends.mlx_whisper import MlxWhisperBackend
+        backends.append(MlxWhisperBackend())
+    except ImportError:
+        pass
 
     try:
         from scriba.backends.whisperx import WhisperXBackend
