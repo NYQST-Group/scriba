@@ -59,6 +59,8 @@ class OpenAISTTBackend:
                 return await client.audio.transcriptions.create(**kwargs)
             return await _inner()
         except ImportError:
+            if file_handle and hasattr(file_handle, "seek"):
+                file_handle.seek(0)
             return await client.audio.transcriptions.create(**kwargs)
 
     async def transcribe(self, audio_path: Path, config: TranscriptionConfig) -> TranscriptionResult:
