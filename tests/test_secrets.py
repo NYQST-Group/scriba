@@ -76,3 +76,14 @@ async def test_chain_returns_none_if_all_miss():
     chain = SecretsChain([kc, env])
     val = await chain.get("openai-api-key")
     assert val is None
+
+
+@pytest.mark.asyncio
+async def test_keychain_uses_to_thread():
+    """Keychain get uses asyncio.to_thread to avoid blocking."""
+    with patch("scriba.secrets.keychain.asyncio") as mock_asyncio:
+        mock_asyncio.to_thread = AsyncMock(return_value="secret")
+        provider = KeychainProvider()
+        result = await provider.get("test-key")
+        mock_asyncio.to_thread.assert_called_once()
+        assert result == "secret"
