@@ -34,8 +34,17 @@ def estimate_cost_cents(backend: str, model: str, *, duration_minutes: float) ->
     return rate * duration_minutes
 
 
-def estimate_time_seconds(backend: str, model: str, *, duration_seconds: float) -> float:
+def estimate_time_seconds(
+    backend: str, model: str, *, duration_seconds: float,
+    calibration_path: Path | None = None,
+) -> float:
     key = f"{backend}:{model}"
+    if calibration_path is not None:
+        data = load_calibration(calibration_path)
+        entries = [e for e in data.get(key, []) if e.get("audio_duration", 0) > 0]
+        if entries:
+            avg_ratio = sum(e["wall_clock"] / e["audio_duration"] for e in entries) / len(entries)
+            return avg_ratio * duration_seconds
     multiplier = TIME_MULTIPLIERS.get(key, 1.0)
     return multiplier * duration_seconds
 

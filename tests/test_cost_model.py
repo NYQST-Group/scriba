@@ -52,3 +52,24 @@ def test_calibration_round_trip(tmp_path: Path):
 def test_calibration_missing_file(tmp_path: Path):
     cal = load_calibration(tmp_path / "nonexistent.json")
     assert cal == {}
+
+
+def test_estimate_time_uses_calibration(tmp_path):
+    cal_path = tmp_path / "calibration.json"
+    for _ in range(3):
+        save_calibration_entry(cal_path, "mlx_whisper", "medium", audio_duration=60.0, wall_clock=6.0)
+    result = estimate_time_seconds("mlx_whisper", "medium", duration_seconds=60.0, calibration_path=cal_path)
+    assert result < 10.0  # Calibrated ~6s, not default 12s
+
+
+def test_estimate_time_calibration_ignores_zero_duration(tmp_path):
+    cal_path = tmp_path / "calibration.json"
+    save_calibration_entry(cal_path, "mlx_whisper", "medium", audio_duration=0.0, wall_clock=1.0)
+    save_calibration_entry(cal_path, "mlx_whisper", "medium", audio_duration=60.0, wall_clock=6.0)
+    result = estimate_time_seconds("mlx_whisper", "medium", duration_seconds=60.0, calibration_path=cal_path)
+    assert result < 10.0
+
+
+def test_estimate_time_no_calibration_uses_default():
+    result = estimate_time_seconds("mlx_whisper", "medium", duration_seconds=60.0, calibration_path=None)
+    assert result == 12.0  # 0.20 * 60
