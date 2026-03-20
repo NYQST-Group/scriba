@@ -33,6 +33,15 @@ def test_generate_vtt():
     assert "00:00:00.000 --> 00:00:01.500" in vtt
 
 
+def test_hard_burn_escapes_special_path_chars(tmp_path):
+    """SRT path with colons is escaped for ffmpeg filter."""
+    from scriba.media.subtitle import _escape_ffmpeg_path
+    special_path = tmp_path / "has:colon.srt"
+    escaped = _escape_ffmpeg_path(special_path)
+    assert "\\:" in escaped
+    assert "has:colon" not in escaped
+
+
 def test_burn_subtitles_soft(tmp_path: Path):
     video = FIXTURES / "test_video.mp4"
     if not video.exists():
