@@ -11,6 +11,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 from scriba.backends import backend_to_info, discover_backends
+from scriba.config import load_config
 from scriba.contracts import TranscriptionConfig
 from scriba.errors import ScribaError
 from scriba.media.ingest import extract_audio, probe_media
@@ -21,8 +22,21 @@ from scriba.secrets import EnvProvider, KeychainProvider, SecretsChain
 
 mcp = FastMCP("scriba")
 
-_local_sem = asyncio.Semaphore(1)
-_cloud_sem = asyncio.Semaphore(3)
+_local_sem: asyncio.Semaphore | None = None
+_cloud_sem: asyncio.Semaphore | None = None
+
+_VALID_QUALITY = {"fast", "balanced", "high"}
+_VALID_TIERS = {"raw", "timestamped", "diarized", "enriched"}
+_VALID_FORMATS = {"json", "text", "srt", "vtt", "md"}
+
+
+def _get_semaphores() -> tuple[asyncio.Semaphore, asyncio.Semaphore]:
+    global _local_sem, _cloud_sem
+    if _local_sem is None or _cloud_sem is None:
+        cfg = load_config()
+        _local_sem = asyncio.Semaphore(cfg.max_local_concurrency)
+        _cloud_sem = asyncio.Semaphore(cfg.max_cloud_concurrency)
+    return _local_sem, _cloud_sem
 
 
 def create_server() -> FastMCP:
@@ -49,6 +63,12 @@ async def transcribe(
 ) -> str:
     """Transcribe an audio or video file."""
     try:
+        if quality not in _VALID_QUALITY:
+            return json.dumps({"error": f"Invalid quality: {quality}. Must be one of: {', '.join(sorted(_VALID_QUALITY))}", "type": "ValueError"})
+        if output_tier not in _VALID_TIERS:
+            return json.dumps({"error": f"Invalid output_tier: {output_tier}. Must be one of: {', '.join(sorted(_VALID_TIERS))}", "type": "ValueError"})
+        if output_format not in _VALID_FORMATS:
+            return json.dumps({"error": f"Invalid output_format: {output_format}. Must be one of: {', '.join(sorted(_VALID_FORMATS))}", "type": "ValueError"})
         path = Path(file_path)
         secrets = await _get_secrets()
         info = probe_media(path)
@@ -75,14 +95,14 @@ async def transcribe(
                 model=decision.selected.model, language=language,
                 diarize=diarize, speakers=speakers, output_tier=output_tier,
             )
-            sem = _cloud_sem if adapter.name == "openai_stt" else _local_sem
+            local_sem, cloud_sem = _get_semaphores()
+            sem = cloud_sem if adapter.name == "openai_stt" else local_sem
             _start = _time.monotonic()
             async with sem:
                 result = await adapter.transcribe(audio_path, tc)
             _elapsed = _time.monotonic() - _start
             from scriba.router.cost_model import save_calibration_entry
-            from scriba.config import load_config as _load_config
-            _cfg = _load_config()
+            _cfg = load_config()
             cal_path = Path(_cfg.calibration_path).expanduser()
             save_calibration_entry(cal_path, adapter.name, tc.model, audio_duration=info.duration_seconds, wall_clock=_elapsed)
             result.routing = decision
@@ -115,6 +135,10 @@ async def estimate(
 ) -> str:
     """Estimate cost and time for transcription without running it."""
     try:
+        if quality not in _VALID_QUALITY:
+            return json.dumps({"error": f"Invalid quality: {quality}. Must be one of: {', '.join(sorted(_VALID_QUALITY))}", "type": "ValueError"})
+        if output_tier not in _VALID_TIERS:
+            return json.dumps({"error": f"Invalid output_tier: {output_tier}. Must be one of: {', '.join(sorted(_VALID_TIERS))}", "type": "ValueError"})
         info = probe_media(Path(file_path))
         constraints = Constraints(
             quality=quality, budget_cents=budget_cents, timeout_seconds=timeout_seconds,

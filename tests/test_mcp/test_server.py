@@ -137,36 +137,41 @@ async def test_transcribe_returns_json_with_text():
 
 @pytest.mark.asyncio
 async def test_transcribe_local_backend_uses_local_semaphore():
-    """Non-openai_stt backend should use _local_sem (Semaphore(1))."""
-    from scriba.mcp.server import transcribe, _local_sem, _cloud_sem
+    """Non-openai_stt backend should use the local semaphore."""
+    import asyncio
+    from scriba.mcp.server import transcribe
 
     fake_backend = _make_fake_backend("mlx_whisper")
     decision = _make_routing_decision("mlx_whisper", "medium")
     tr = _make_transcription_result(decision=decision)
     fake_backend.transcribe = AsyncMock(return_value=tr)
 
+    mock_local = asyncio.Semaphore(1)
+    mock_cloud = asyncio.Semaphore(3)
     acquired_sems = []
 
-    original_local_acquire = _local_sem.acquire
-    original_cloud_acquire = _cloud_sem.acquire
+    original_local_acquire = mock_local.acquire
+    original_cloud_acquire = mock_cloud.acquire
 
-    async def track_local():
+    async def track_local(*a, **kw):
         acquired_sems.append("local")
-        return await original_local_acquire()
+        return await original_local_acquire(*a, **kw)
 
-    async def track_cloud():
+    async def track_cloud(*a, **kw):
         acquired_sems.append("cloud")
-        return await original_cloud_acquire()
+        return await original_cloud_acquire(*a, **kw)
+
+    mock_local.acquire = track_local
+    mock_cloud.acquire = track_cloud
 
     with (
+        patch("scriba.mcp.server._get_semaphores", return_value=(mock_local, mock_cloud)),
         patch("scriba.mcp.server.discover_backends", return_value=[fake_backend]),
         patch("scriba.mcp.server.probe_media", return_value=_make_media_info()),
         patch("scriba.mcp.server.extract_audio", return_value=MagicMock()),
         patch("scriba.mcp.server.route", return_value=decision),
         patch("scriba.mcp.server._get_secrets", new_callable=AsyncMock,
               return_value=MagicMock(get=AsyncMock(return_value=None))),
-        patch.object(_local_sem, "acquire", side_effect=track_local),
-        patch.object(_cloud_sem, "acquire", side_effect=track_cloud),
         patch("scriba.router.cost_model.save_calibration_entry"),
     ):
         await transcribe(file_path="/fake/audio.wav")
@@ -177,36 +182,41 @@ async def test_transcribe_local_backend_uses_local_semaphore():
 
 @pytest.mark.asyncio
 async def test_transcribe_cloud_backend_uses_cloud_semaphore():
-    """openai_stt backend should use _cloud_sem (Semaphore(3))."""
-    from scriba.mcp.server import transcribe, _local_sem, _cloud_sem
+    """openai_stt backend should use the cloud semaphore."""
+    import asyncio
+    from scriba.mcp.server import transcribe
 
     fake_backend = _make_fake_backend("openai_stt")
     decision = _make_routing_decision("openai_stt", "gpt-4o-mini-transcribe", cost=1.2, time=5.0)
     tr = _make_transcription_result("openai_stt", "gpt-4o-mini-transcribe", decision=decision)
     fake_backend.transcribe = AsyncMock(return_value=tr)
 
+    mock_local = asyncio.Semaphore(1)
+    mock_cloud = asyncio.Semaphore(3)
     acquired_sems = []
 
-    original_local_acquire = _local_sem.acquire
-    original_cloud_acquire = _cloud_sem.acquire
+    original_local_acquire = mock_local.acquire
+    original_cloud_acquire = mock_cloud.acquire
 
-    async def track_local():
+    async def track_local(*a, **kw):
         acquired_sems.append("local")
-        return await original_local_acquire()
+        return await original_local_acquire(*a, **kw)
 
-    async def track_cloud():
+    async def track_cloud(*a, **kw):
         acquired_sems.append("cloud")
-        return await original_cloud_acquire()
+        return await original_cloud_acquire(*a, **kw)
+
+    mock_local.acquire = track_local
+    mock_cloud.acquire = track_cloud
 
     with (
+        patch("scriba.mcp.server._get_semaphores", return_value=(mock_local, mock_cloud)),
         patch("scriba.mcp.server.discover_backends", return_value=[fake_backend]),
         patch("scriba.mcp.server.probe_media", return_value=_make_media_info()),
         patch("scriba.mcp.server.extract_audio", return_value=MagicMock()),
         patch("scriba.mcp.server.route", return_value=decision),
         patch("scriba.mcp.server._get_secrets", new_callable=AsyncMock,
               return_value=MagicMock(get=AsyncMock(return_value=None))),
-        patch.object(_local_sem, "acquire", side_effect=track_local),
-        patch.object(_cloud_sem, "acquire", side_effect=track_cloud),
         patch("scriba.router.cost_model.save_calibration_entry"),
     ):
         await transcribe(file_path="/fake/audio.wav")
@@ -654,3 +664,46 @@ async def test_handle_backends_available_has_no_reason():
     assert len(result) == 1
     assert result[0]["available"] is True
     assert result[0]["reason_unavailable"] is None
+
+
+# ---------------------------------------------------------------------------
+# Configurable semaphores + parameter validation tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_semaphores_uses_config():
+    import scriba.mcp.server as srv
+    srv._local_sem = None
+    srv._cloud_sem = None
+    with patch("scriba.mcp.server.load_config") as mock_cfg:
+        mock_cfg.return_value = MagicMock(max_local_concurrency=2, max_cloud_concurrency=5)
+        local_sem, cloud_sem = srv._get_semaphores()
+        assert local_sem._value == 2
+        assert cloud_sem._value == 5
+    srv._local_sem = None
+    srv._cloud_sem = None
+
+
+@pytest.mark.asyncio
+async def test_transcribe_invalid_quality_returns_error():
+    from scriba.mcp.server import transcribe
+    result = await transcribe(file_path="/fake/audio.wav", quality="turbo")
+    data = json.loads(result)
+    assert "error" in data
+    assert "quality" in data["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_transcribe_invalid_format_returns_error():
+    from scriba.mcp.server import transcribe
+    result = await transcribe(file_path="/fake/audio.wav", output_format="csv")
+    data = json.loads(result)
+    assert "error" in data
+
+
+@pytest.mark.asyncio
+async def test_estimate_invalid_quality_returns_error():
+    from scriba.mcp.server import estimate
+    result = await estimate(file_path="/fake/audio.wav", quality="turbo")
+    data = json.loads(result)
+    assert "error" in data
