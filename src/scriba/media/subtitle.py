@@ -5,6 +5,17 @@ from pathlib import Path
 from scriba.errors import AudioError, DependencyMissing
 
 
+def _escape_ffmpeg_path(path: Path) -> str:
+    """Escape special characters for ffmpeg subtitle filter expressions."""
+    s = str(path)
+    s = s.replace("\\", "\\\\")
+    s = s.replace(":", "\\:")
+    s = s.replace("'", "\\'")
+    s = s.replace("[", "\\[")
+    s = s.replace("]", "\\]")
+    return s
+
+
 def burn_subtitles(
     video_path: Path, srt_path: Path, output_path: Path, *, mode: str = "soft",
 ) -> Path:
@@ -17,7 +28,7 @@ def burn_subtitles(
     if mode == "hard":
         cmd = [
             "ffmpeg", "-y", "-i", str(video_path),
-            "-vf", f"subtitles={srt_path}", "-c:a", "copy", str(output_path),
+            "-vf", f"subtitles={_escape_ffmpeg_path(srt_path)}", "-c:a", "copy", str(output_path),
         ]
     else:
         sub_codec = {
